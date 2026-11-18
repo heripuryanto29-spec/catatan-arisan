@@ -35,10 +35,18 @@ tr{animation:up .4s both}.tag{padding:3px 10px;border-radius:20px;font-size:12px
 .av{width:56px;height:56px;border-radius:50%;background:#fff3;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;flex:none;animation:fl 3s infinite}
 .hero h2{margin:0 0 4px;font-size:clamp(18px,4vw,24px)}.hero .r{display:inline-block;background:#fff3;padding:2px 12px;border-radius:20px;font-size:12px;margin-right:6px}
 .who{display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;background:var(--bg);margin-bottom:14px;font-size:13px}.who .av{width:36px;height:36px;font-size:16px;background:var(--p);color:#fff;animation:none}
+/* tanpa kursor teks (I-beam) di luar kolom isian */
+*{cursor:default;-webkit-tap-highlight-color:transparent}
+body{-webkit-user-select:none;user-select:none}
+button,aside a,select,[onclick],label{cursor:pointer}
+input,textarea{cursor:text;-webkit-user-select:text;user-select:text}
+input[type=date],input[type=number]{cursor:pointer}
+td,th{-webkit-user-select:text;user-select:text}
+canvas{caret-color:transparent}
 @media print{aside,#burger,.np{display:none!important}main{margin:0}}
 </style></head><body>
 <div id="login"><div class="box"><div class="ic">🎲</div><h2 style="text-align:center">Arisan</h2>
-<input id="u" placeholder="Username (nama anggota)"><input id="p" type="password" placeholder="Password">
+<input id="u" placeholder="Username (anggota: No HP)"><input id="p" type="password" placeholder="Password">
 <button onclick="doLogin()">Masuk</button><div id="le" class="m" style="color:var(--no);text-align:center"></div></div></div>
 
 <div id="app"><aside id="side"><h2>🎲 Arisan</h2><div id="who" class="who"></div>
@@ -54,11 +62,14 @@ const API_URL = "https://script.google.com/macros/s/AKfycbwhBXe0ROgfUGix3mg1J2rh
 const $ = id => document.getElementById(id), rp = n => 'Rp ' + Number(n || 0).toLocaleString('id-ID');
 let T = localStorage.getItem('t') || '', ME = JSON.parse(localStorage.getItem('me') || 'null'), CH = [], D = null, CUR = 'dash';
 const inGAS = typeof google !== 'undefined' && google.script;
+let LAST = 0, URL_API = API_URL || localStorage.getItem('api') || '';
+function apply(r) { if (r && r.data) { D = { ...r.data, _s: JSON.stringify(r.data) }; LAST = Date.now(); setWho(); } }
 
 function api(fn, args) {
   return new Promise((ok, no) => {
     if (inGAS) google.script.run.withSuccessHandler(ok).withFailureHandler(e => no(e.message)).rpc(fn, T, args || {});
-    else fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ fn, token: T, args: args || {} }) })
+    else if (!URL_API && !(URL_API = (prompt('Tempel URL Web App Apps Script (berakhiran /exec):') || '').trim())) no('URL API belum diisi');
+    else fetch(URL_API, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ fn, token: T, args: args || {} }) })
       .then(r => r.json()).then(ok).catch(e => no(e.message));
   }).then(r => { if (r && r.expired) logout(true); return r; });
 }
@@ -66,7 +77,7 @@ async function doLogin() {
   $('le').textContent = 'Memproses...';
   let r; try { r = await api('login', { u: $('u').value, p: $('p').value }); } catch (e) { return $('le').textContent = 'Gagal: ' + e; }
   if (!r || r.err) return $('le').textContent = r ? r.err : 'Tidak ada respon dari server';
-  T = r.token; ME = r.me; localStorage.setItem('t', T); localStorage.setItem('me', JSON.stringify(ME)); start();
+  if (URL_API) localStorage.setItem('api', URL_API); apply(r); T = r.token; ME = r.me; localStorage.setItem('t', T); localStorage.setItem('me', JSON.stringify(ME)); start();
 }
 ['u', 'p'].forEach(i => $(i).addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); }));
 function logout(quiet) {   // tanpa reload: langsung kembali ke halaman login
@@ -96,7 +107,7 @@ function hero() {
 async function load() {
   const r = await api('init');
   if (!r || r.err) return false;
-  const s = JSON.stringify(r); if (D && D._s === s) return false;
+  const s = JSON.stringify(r); LAST = Date.now(); if (D && D._s === s) return false;
   D = { ...r, _s: s }; setWho(); return true;
 }
 const busy = () => $('modal').style.display === 'flex';
@@ -104,10 +115,12 @@ async function go(m) {
   if ((ME.role !== 'admin' && (m === 'ang' || m === 'lap')) || (ME.role === 'admin' && m === 'byr')) m = 'dash';   // anggota: hanya dashboard & perolehan
   CUR = m; side.classList.remove('open');
   document.querySelectorAll('aside a').forEach(a => a.classList.toggle('on', a.dataset.m === m));
-  if (D) { R[m](); load().then(ch => { if (ch && CUR === m && !busy() && T) R[m](); }); }
+  if (D) { R[m](); if (Date.now() - LAST > 30000) load().then(ch => { if (ch && CUR === m && !busy() && T) R[m](); }); }
   else { $('v').innerHTML = '<p class="m">Memuat data...</p>'; await load(); if (CUR === m && T) R[m](); }
 }
 async function refresh() { await load(); R[CUR](); }
+function fin(r, b) { if (r.err) { if (b) { b.disabled = false; b.textContent = '💾 Simpan'; } return alert(r.err); } apply(r); closeM(); R[CUR](); }
+const wait = b => { b.disabled = true; b.textContent = '⏳ Menyimpan...'; return b; };
 
 function dash() {
   const d = D.dashboard; CH.forEach(c => c.destroy()); CH = [];
@@ -130,7 +143,7 @@ function ang() {
   const AG = D.anggota, adm = ME.role === 'admin';
   $('v').innerHTML = `<h2 class="up">Data Anggota</h2><div class="card"><button class="s np" onclick="fa()" ${adm ? '' : 'style="display:none"'}>➕ Tambah Anggota</button>
   <div class="tw"><table><tr><th>#</th><th>Nama</th><th>Alamat</th><th>No HP</th><th>Username</th>${adm ? '<th class="np">Password</th><th class="np">Aksi</th>' : ''}</tr>
-  ${AG.map((a, i) => `<tr style="animation-delay:${i * 30}ms"><td>${i + 1}</td><td>${a.nama}</td><td>${a.alamat}</td><td>${a.hp}</td><td>${a.username}</td>
+  ${AG.map((a, i) => `<tr style="animation-delay:${Math.min(i, 8) * 30}ms"><td>${i + 1}</td><td>${a.nama}</td><td>${a.alamat}</td><td>${a.hp}</td><td>${a.username}</td>
   ${adm ? `<td class="np">${a.password}</td><td class="np"><button class="s" onclick="fa('${a.id}')">✏️</button><button class="s d" onclick="da('${a.id}')">🗑️</button></td>` : ''}</tr>`).join('')}</table></div></div>`;
 }
 function modal(h) { $('mb').innerHTML = h; $('modal').style.display = 'flex'; }
@@ -149,10 +162,11 @@ function fa(id) {
 }
 async function sa(id) {
   if (!$('fn').value || !$('fh').value) return alert('Nama dan No HP wajib diisi');
+  const b = wait(event.target);
   const r = await api('saveAnggota', { id, nama: $('fn').value, alamat: $('fd').value, hp: $('fh').value, username: $('fu').value, password: $('fw').value });
-  if (r.err) return alert(r.err); closeM(); refresh();
+  fin(r, b);
 }
-async function da(id) { if (confirm('Hapus anggota ini?')) { await api('delAnggota', { id }); refresh(); } }
+async function da(id) { if (confirm('Hapus anggota ini?')) { D.anggota = D.anggota.filter(x => x.id != id); R[CUR](); fin(await api('delAnggota', { id })); } }
 
 // Daftar semua anggota + nominal bayar (0 = belum bayar) untuk satu lot
 function detail(p) {
@@ -165,7 +179,7 @@ function per() {
   $('v').innerHTML = `<h2 class="up">${adm ? 'Perolehan Arisan' : 'Perolehan Saya'}</h2><div class="card">${adm ? '<button class="s np" onclick="fp()">➕ Input Perolehan</button>' : ''}
   ${PR.length ? '' : '<p class="m">Belum ada perolehan atas nama Anda.</p>'}
   <div class="tw"><table><tr><th>Lot</th><th>Penerima</th><th>Tanggal</th><th>Pembayaran</th><th>Jumlah Diterima</th>${adm ? '<th>Aksi</th>' : ''}</tr>
-  ${PR.map((p, i) => `<tr style="animation-delay:${i * 30}ms"><td><span class="tag" style="background:var(--p)">Lot ke-${p.lot}</span></td><td>${p.nama}</td><td>${p.tanggal}</td>
+  ${PR.map((p, i) => `<tr style="animation-delay:${Math.min(i, 8) * 30}ms"><td><span class="tag" style="background:var(--p)">Lot ke-${p.lot}</span></td><td>${p.nama}</td><td>${p.tanggal}</td>
   <td><button class="s" onclick="dt('${p.id}')">👁️ Detail (${p.bayar.length}/${D.semua.length})</button></td><td><b>${rp(p.jumlah)}</b></td>
   ${adm ? `<td><button class="s" onclick="fp('${p.id}')">✏️</button><button class="s d" onclick="dp('${p.id}')">🗑️</button></td>` : ''}</tr>`).join('')}</table></div></div>`;
 }
@@ -191,16 +205,17 @@ function fp(id) {
 function tot() { $('tt').textContent = rp([...document.querySelectorAll('.pn')].reduce((s, e) => s + +e.value, 0)); }
 async function sp(id) {
   if (!$('pa').value) return alert('Pilih penerima');
+  const b = wait(event.target);
   const r = await api('savePerolehan', { id, lot: +$('pl').value, anggotaId: $('pa').value, tanggal: $('pt').value,
     payments: [...document.querySelectorAll('.pn')].map(e => ({ anggotaId: e.dataset.id, nominal: +e.value })) });
-  if (r.err) return alert(r.err); closeM(); refresh();
+  fin(r, b);
 }
-async function dp(id) { if (confirm('Hapus perolehan ini?')) { await api('delPerolehan', { id }); refresh(); } }
+async function dp(id) { if (confirm('Hapus perolehan ini?')) { D.perolehan = D.perolehan.filter(x => x.id != id); R[CUR](); fin(await api('delPerolehan', { id })); } }
 
 function lap() {
   const d = D.perolehan, all = d.reduce((s, p) => s + p.jumlah, 0);
   $('v').innerHTML = `<h2 class="up">Laporan Arisan</h2><button class="s np" onclick="print()">🖨️ Cetak</button>
-  ${d.map((p, i) => `<div class="card" style="animation-delay:${i * 50}ms"><b>Lot ke-${p.lot} — ${p.nama}</b> <span class="m">(${p.tanggal})</span>
+  ${d.map((p, i) => `<div class="card" style="animation-delay:${Math.min(i, 8) * 30}ms"><b>Lot ke-${p.lot} — ${p.nama}</b> <span class="m">(${p.tanggal})</span>
   <div class="tw"><table><tr><th>Anggota</th><th>Nominal</th><th>Status</th></tr>${detail(p).map(x => `<tr><td>${x.nama}</td><td>${x.nominal ? rp(x.nominal) : '-'}</td><td>${stat(x.nominal)}</td></tr>`).join('')}
   <tr><th>Jumlah Diterima</th><th colspan="2">${rp(p.jumlah)}</th></tr></table></div></div>`).join('')}
   <div class="card"><b>Total Perolehan: ${rp(all)}</b></div>`;
@@ -214,7 +229,7 @@ function byr() {
   <div class="card"><div class="m">Belum dibayar</div><div class="num" style="color:var(--no)">${wajib.length - lunas.length}</div></div></div>
   <div class="card"><div class="m">Kelengkapan pembayaran ${pct}%</div><div style="height:12px;border-radius:8px;background:#8883;overflow:hidden;margin-top:8px"><div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#6c5ce7,#00b894);transition:width 1s"></div></div></div>
   <div class="card">${d.length ? '' : '<p class="m">Belum ada anggota yang keluar lot.</p>'}<div class="tw"><table><tr><th>Lot</th><th>Penerima</th><th>Tanggal</th><th>Nominal Anda</th><th>Status</th></tr>
-  ${d.map((x, i) => `<tr style="animation-delay:${i * 30}ms"><td><span class="tag" style="background:var(--p)">Lot ke-${x.lot}</span></td><td>${x.penerima}${x.diriSendiri ? ' (Anda)' : ''}</td><td>${x.tanggal}</td>
+  ${d.map((x, i) => `<tr style="animation-delay:${Math.min(i, 8) * 30}ms"><td><span class="tag" style="background:var(--p)">Lot ke-${x.lot}</span></td><td>${x.penerima}${x.diriSendiri ? ' (Anda)' : ''}</td><td>${x.tanggal}</td>
   <td>${x.nominal ? rp(x.nominal) : '-'}</td><td>${x.diriSendiri ? '<span class="tag" style="background:var(--p)">Lot Anda</span>' : stat(x.nominal)}</td></tr>`).join('')}
   </table></div></div>`;
 }
