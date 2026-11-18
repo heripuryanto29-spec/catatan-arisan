@@ -1,1 +1,0 @@
-fetch('URL-EXEC-ANDA',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({fn:'login',args:{u:'admin',p:'admin123'}})}).then(r=>r.text()).then(console.log)
